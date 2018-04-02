@@ -1,0 +1,10 @@
+{
+  "name": "moofy-bot",
+  "version": "1.0.0",
+  "description": "some random bot",
+  "main": "main.js",
+  "author": "l'shep",
+  "dependencies": {
+    "discord.io": "github:izy521/discord.io"
+  }
+}

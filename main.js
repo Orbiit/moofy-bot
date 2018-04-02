@@ -6,7 +6,9 @@ var bot = new Discord.Client({
   token: Token.token
 });
 var moneies,
-userdata;
+userdata,
+tempChannel,
+robbers = [];
 
 fs.readFile("./moneies.json", "utf8", (err, data) => {
   moneies = JSON.parse(data);
@@ -20,12 +22,25 @@ fs.readFile("./users.json", "utf8", (err, data) => {
         userdata[user].lastHourly = 0;
       case 1:
         userdata[user].lastDaily = 0;
+      case 2:
+        userdata[user].dailyStreak = 0;
+        userdata[user].hourlyStreak = 0;
     }
-    userdata[user].version = 2;
+    userdata[user].version = 3;
   }
   updateUserData();
 });
 
+function createUser(userID) {
+  setMoney(userID, 500);
+  updateUserData(userdata[userID] = {
+    version: 2,
+    lastHourly: 0,
+    lastDaily: 0,
+    dailyStreak: 0,
+    hourlyStreak: 0
+  });
+}
 function updateUserData() {
   fs.writeFile("./users.json", JSON.stringify(userdata), err => {});
 }
@@ -33,7 +48,7 @@ function setMoney(person, amount) {
   moneies[person] = amount;
   fs.writeFile("./moneies.json", JSON.stringify(moneies), err => {});
 }
-function regularReward(channelID, userID, amount, time, property, unit) {
+function regularReward(channelID, userID, amount, time, property, unit, streakProperty) {
   var msg;
   if (moneies[userID] !== undefined) {
     var now = Date.now(),
@@ -41,6 +56,7 @@ function regularReward(channelID, userID, amount, time, property, unit) {
     if (timeTilNext <= 0) {
       setMoney(userID, moneies[userID] + amount);
       msg = `OK HERE IS YOUR **\`${amount}\`** MONEIES`;
+      userdata[userID][streakProperty]++;
       updateUserData(userdata[userID][property] = now);
     } else {
       msg = `HEY HEY HEY IT HASN'T BEEN ${unit} YET YOU SILLY. JUST WAIT LIKE `;
@@ -103,12 +119,7 @@ bot.on('message', function(user, userID, channelID, message, event) {
     });
   } else if (/\b(i'?m|i\s+am)\s+new\b/i.test(message)) {
     if (userdata[userID] === undefined) {
-      setMoney(userID, 500);
-      updateUserData(userdata[userID] = {
-        version: 2,
-        lastHourly: 0,
-        lastDaily: 0
-      });
+      createUser(userID);
       bot.sendMessage({
         to: channelID,
         message: `OK THEN, <@${userID}>. I WILL START YOU OFF WITH **__500__** MONEIES!`
@@ -151,16 +162,49 @@ bot.on('message', function(user, userID, channelID, message, event) {
       message: `I RECOMMEND THAT YOU ANNOY ME:
       I RESPOND VIOLENTLY TO \`WHO ARE YOU\`, \`MY MONEIES\`, \`I'M NEW\`,
       \`THEIR MONEIES\`, \`GAMBLE\`, \`WHAT SHOULD I DO\`, \`GIVE 123 MONEIES TO @SOMEONE\`,
-      AND \`ECHO "STRING"\`
+      \`ECHO "STRING"\`, \`HOURLY\`, \`DAILY\`, \`USE THIS CHANNEL\`, \`DEBUG L'TEST\`
       I GET TRIGGERED WHEN YOU MENTION ME OR USE THE WORD \`HATE\``
     });
   } else if (/\bhourly\b/i.test(message)) {
-    regularReward(channelID, userID, 50, 3600000, "lastHourly", "AN HOUR");
+    regularReward(channelID, userID, 50, 3600000, "lastHourly", "AN HOUR", "hourlyStreak");
   } else if (/\bdaily\b/i.test(message)) {
-    regularReward(channelID, userID, 500, 86400000, "lastDaily", "A DAY");
+    regularReward(channelID, userID, 500, 86400000, "lastDaily", "A DAY", "dailyStreak");
+  } else if (/\buse\s+this\s+channel\b/i.test(message)) {
+    tempChannel = channelID;
+  } else if (message.toLowerCase() === "run") {
+    for (var i = robbers.length; i--;) {
+      if (robbers[i].robber === userID) {
+        robbers.splice(i, 1);
+        bot.sendMessage({
+          to: channelID,
+          message: `<@${userID}> ESCAPED SUCCESSFULLY`
+        });
+      }
+    }
+  } else if (message.toLowerCase() === "hey") {
+    if (robbers.length) {
+      bot.sendMessage({
+        to: channelID,
+        message: `<@${userID}> CAUGHT ${robbers.length} ROBBER(S): `
+          + robbers.map(r => `<@${r.robber}>`).join(", ")
+          + `\n\nTHEY WILL RETURN THE STOLEN MONEY AND GIVE A THIRD OF THE `
+          + `ROBBERS' MONEY TO THE SAVIOR`
+      });
+      robbers.map(r => {
+        setMoney(r.robber, moneies[r.robber] - r.amount);
+        setMoney(r.robbed, moneies[r.robbed] + r.amount);
+
+        var punishment = Math.ceil(moneies[r.robber] / 3);
+        setMoney(r.robber, moneies[r.robber] - punishment);
+        setMoney(userID, moneies[userID] + punishment);
+      });
+    }
   } else {
     var giveMoneyRegex = /\bgive\s+([0-9]+)\s*(?:money|moneies)\s+to\s+<@([0-9]+)>\b/i,
-    echoRegex = /\becho\s+(".*")(\s*-codeblock)*/i;
+    echoRegex = /\becho\s+(".*")(\s*-codeblock)*(\s*-external)*/i,
+    debugRegex = /\bdebug\sl'\s?([a-z\-]+)/i,
+    isNewRegex = /<@!?([0-9]+)>(?:'s|\s+is)\s+new\b/i,
+    robRegex = /\b(?:rob|steal)\s+([0-9]+)\s+(?:money|moneies)\s+(?:from\s+|d')<@!?([0-9]+)>/i;
     if (giveMoneyRegex.test(message)) {
       var exec = giveMoneyRegex.exec(message),
       amount = Math.min(+exec[1], moneies[userID]);
@@ -182,14 +226,71 @@ bot.on('message', function(user, userID, channelID, message, event) {
         var exec = echoRegex.exec(message),
         str = JSON.parse(exec[1]);
         if (exec[2]) str = "```" + str + "```";
+        if (exec[3] && !tempChannel) throw new Error("no set channel");
         bot.sendMessage({
-          to: channelID,
+          to: exec[3] ? tempChannel : channelID,
           message: str
         });
       } catch (e) {
         bot.sendMessage({
           to: channelID,
-          message: `HEY <@${userID}> I THINK YOU BROKE:` + "```" + e + "```"
+          message: `HEY <@${userID}> I THINK YOU BROKE:` + "```" + e.toString().toUpperCase() + "```"
+        });
+      }
+    } else if (debugRegex.test(message)) {
+      var response = "not sure how to do that";
+      switch (debugRegex.exec(message)[1]) {
+        case "mi-userid":
+          response = userID;
+          break;
+        case "test":
+          response = "omni salut l'democraze";
+          break;
+      }
+      bot.sendMessage({
+        to: channelID,
+        message: `<@${userID}>\`\`\`css\n${response.toUpperCase()}\`\`\``
+      });
+    } else if (isNewRegex.test(message)) {
+      var user = isNewRegex.exec(message)[1];
+      if (userdata[user] === undefined) {
+        createUser(user);
+        bot.sendMessage({
+          to: channelID,
+          message: `<@${userID}> THANKS FOR LETTING ME K'NOW`
+        });
+      } else {
+        bot.sendMessage({
+          to: channelID,
+          message: `<@${userID}> I DON'T THINK SOOOO`
+        });
+      }
+    } else if (robRegex.test(message)) {
+      var exec = robRegex.exec(message),
+      amount = +exec[1],
+      user = exec[2];
+      if (moneies[userID] === undefined) {
+        bot.sendMessage({
+          to: channelID,
+          message: `<@${userID}> THEY DON'T HAVE A MONEY ACCOUNT`
+        });
+      } else if (amount > 100 || amount < 0 || amount > moneies[user]) {
+        bot.sendMessage({
+          to: channelID,
+          message: `SORRY <@${userID}> I CAN'T WORK WITH THAT AMOUNT`
+        });
+      } else {
+        setMoney(user, moneies[user] - amount);
+        setMoney(userID, moneies[userID] + amount);
+        robbers.push({
+          robber: userID,
+          robbed: user,
+          amount: amount
+        });
+        bot.sendMessage({
+          to: channelID,
+          message: `(<@${userID}> OK - SAY \`RUN\` TO AVOID GETTING CAUGHT)`
+            + `\n\n**<@${userID}> STOLE FROM SOMEONE ELSE. SAY \`HEY\` FOR A REWARD.**`
         });
       }
     }

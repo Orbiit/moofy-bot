@@ -46,6 +46,7 @@ function updateUserData() {
   fs.writeFile("./users.json", JSON.stringify(userdata), err => {});
 }
 function setMoney(person, amount) {
+  console.log(`giving ${amount - moneies[person]} to ${person}`);
   moneies[person] = amount;
   fs.writeFile("./moneies.json", JSON.stringify(moneies), err => {});
 }
